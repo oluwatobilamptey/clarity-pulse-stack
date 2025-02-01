@@ -36,64 +36,89 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Can set and get budget",
+    name: "Can setup and execute recurring transactions",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const wallet_1 = accounts.get("wallet_1")!;
         
+        // Setup recurring transaction
         let block = chain.mineBlock([
-            Tx.contractCall("pulse_stack", "set-budget", [
-                types.uint(1000)
+            Tx.contractCall("pulse_stack", "setup-recurring-transaction", [
+                types.int(500),
+                types.ascii("rent"),
+                types.ascii("Monthly rent payment"),
+                types.uint(30)
             ], wallet_1.address)
         ]);
         
         block.receipts[0].result.expectOk();
         
-        // Verify budget
+        // Verify recurring transaction setup
         let getBlock = chain.mineBlock([
-            Tx.contractCall("pulse_stack", "get-budget", [
+            Tx.contractCall("pulse_stack", "get-recurring-transaction", [
                 types.principal(wallet_1.address)
             ], wallet_1.address)
         ]);
         
-        const budgetData = getBlock.receipts[0].result.expectSome();
-        assertEquals(budgetData['monthly-limit'], types.uint(1000));
-        assertEquals(budgetData['spent'], types.uint(0));
+        const recurringData = getBlock.receipts[0].result.expectSome();
+        assertEquals(recurringData['amount'], types.int(500));
+        assertEquals(recurringData['period'], types.uint(30));
+        assertEquals(recurringData['active'], true);
+        
+        // Mine blocks to trigger recurring transaction
+        chain.mineEmptyBlockUntil(35);
+        
+        // Execute recurring transaction
+        let executeBlock = chain.mineBlock([
+            Tx.contractCall("pulse_stack", "execute-recurring-transactions", [], wallet_1.address)
+        ]);
+        
+        executeBlock.receipts[0].result.expectOk();
+        
+        // Verify transaction was created
+        let getTx = chain.mineBlock([
+            Tx.contractCall("pulse_stack", "get-transaction", [
+                types.uint(0)
+            ], wallet_1.address)
+        ]);
+        
+        const txData = getTx.receipts[0].result.expectSome();
+        assertEquals(txData['amount'], types.int(500));
+        assertEquals(txData['category'], types.ascii("rent"));
     }
 });
 
 Clarinet.test({
-    name: "Can set and track financial goals",
+    name: "Can cancel recurring transaction",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const wallet_1 = accounts.get("wallet_1")!;
         
-        let block = chain.mineBlock([
-            Tx.contractCall("pulse_stack", "set-goal", [
-                types.uint(5000),
-                types.uint(100),
-                types.ascii("Emergency Fund")
+        // Setup recurring transaction
+        let setupBlock = chain.mineBlock([
+            Tx.contractCall("pulse_stack", "setup-recurring-transaction", [
+                types.int(100),
+                types.ascii("subscription"),
+                types.ascii("Monthly subscription"),
+                types.uint(30)
             ], wallet_1.address)
         ]);
         
-        block.receipts[0].result.expectOk();
+        setupBlock.receipts[0].result.expectOk();
         
-        // Update goal progress
-        let updateBlock = chain.mineBlock([
-            Tx.contractCall("pulse_stack", "update-goal-progress", [
-                types.uint(1000)
-            ], wallet_1.address)
+        // Cancel recurring transaction
+        let cancelBlock = chain.mineBlock([
+            Tx.contractCall("pulse_stack", "cancel-recurring-transaction", [], wallet_1.address)
         ]);
         
-        updateBlock.receipts[0].result.expectOk();
+        cancelBlock.receipts[0].result.expectOk();
         
-        // Verify goal progress
+        // Verify cancellation
         let getBlock = chain.mineBlock([
-            Tx.contractCall("pulse_stack", "get-goal", [
+            Tx.contractCall("pulse_stack", "get-recurring-transaction", [
                 types.principal(wallet_1.address)
             ], wallet_1.address)
         ]);
         
-        const goalData = getBlock.receipts[0].result.expectSome();
-        assertEquals(goalData['target'], types.uint(5000));
-        assertEquals(goalData['saved'], types.uint(1000));
+        const recurringData = getBlock.receipts[0].result.expectSome();
+        assertEquals(recurringData['active'], false);
     }
 });
